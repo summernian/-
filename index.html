@@ -1,0 +1,396 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>头像上传预览加剪裁效果</title>
+<script src="http://libs.baidu.com/jquery/1.7.2/jquery.min.js"></script>
+<style>
+div.uploadButton {
+    border: 1px solid #555;
+    width: 50px;
+    height: 20px;
+    cursor: pointer;
+    background: #fff;
+    border-radius: 4px;
+    overflow: hidden;
+}
+div.rangeInputBox {
+    margin: 30px auto;
+}
+input[type=file] {
+    display: none;
+}
+input[type=file]:focus {
+    outline: none;
+}
+input[type=range].RangeInput {
+    width: 220px;
+    height: 12px;
+    padding: 0;
+    margin: 0 10px;
+    vertical-align: middle;
+    background: transparent;
+    -webkit-appearance: none;
+    -moz-appearance: none;
+    appearance: none;
+}
+input[type=range].RangeInput:focus {
+    outline: none;
+}
+input[type=range].RangeInput::-webkit-slider-runnable-track {
+    height: 5px;
+    cursor: pointer;
+    background: #f2f5fb;
+    border-radius: 2px;
+}
+input[type=range].RangeInput::-webkit-slider-thumb {
+    width: 12px;
+    height: 12px;
+    margin-top: -4px;
+    cursor: pointer;
+    background: #d2dbe8;
+    border-radius: 50%;
+    -webkit-appearance: none;
+    appearance: none;
+}
+input[type=range].RangeInput::-moz-range-track {
+    height:5px;
+    cursor: pointer;
+    background: #f2f5fb;
+    border-radius: 2px;
+}
+input[type=range].RangeInput::-moz-range-thumb {
+    width: 12px;
+    height: 12px;
+    cursor: pointer;
+    background: #d2dbe8;
+    border: none;
+    border-radius: 50%;
+}
+input[type=range].RangeInput::-ms-track {
+    width: 100%;
+    height: 5px;
+    color: transparent;
+    cursor: pointer;
+    background: transparent;
+    border-color: transparent;
+}
+input[type=range].RangeInput::-ms-fill-lower,
+input[type=range].RangeInput::-ms-fill-upper {
+    background: #f2f5fb;
+    border-radius: 2px;
+}
+input[type=range].RangeInput::-ms-thumb {
+    width: 12px;
+    height: 12px;
+    cursor: pointer;
+    background: #d2dbe8;
+    border: none;
+    border-radius: 50%;
+}
+input[type=range].RangeInput::-ms-tooltip {
+    display: none;
+}
+.range {
+	margin: 100px;
+	width: 500px;
+	height: 5px;
+	background: #ccc;
+	position: relative;
+}
+.bar {
+	width: 10px;
+	height: 20px;
+	background: #369;
+	position: absolute;
+	top: -7px;
+	left: 0;
+	cursor: pointer;
+}
+.mask {
+	position: absolute;
+	left: 0;
+	top: 0;
+	background: #369;
+	width: 0;
+	height: 5px;
+}
+</style>
+</head>
+<body>
+<div>
+    <div class="uploadButton">
+        上传文件
+        <input class="fileInput" accept="image/png,image/jpeg" type="file">
+    </div>
+    <div>
+        <canvas class="canvas" width="240" height="240" style="border: 1px solid #f00;" style="cursor: move">您的浏览器不支持这个功能，建议升级浏览器！</canvas>
+    </div>
+    <div class="rangeInputBox">
+        <input class="rangeInput" style="width: 242px;" type="range" step="0.01" min="1" max="2" value="1">
+    </div>
+	<button type="button">send</button>
+	
+	<!-- 自定义进度条 -->
+	<div class="range" id="range">
+	    <div class="bar" id="bar"></div>
+	    <div class="mask" id="mask"></div>
+	</div>
+	<p></p>
+</div>
+<script>
+!function() {
+	var canvas = document.getElementsByClassName("canvas")[0];
+    var ctx = canvas.getContext("2d");
+    var border = {
+		width: 40, //头像边框厚度
+        color: "rgba(247, 248, 250, .8)" //头像边框颜色
+    }
+    var minImgRect = {
+        width: null,
+        height: null
+    }; //图像的最小高度与宽度
+    var currLoc = {
+        x: null,
+        y: null
+    }; //保存当前图片在canvas里的位置
+    var imgRect = {
+        width: null,
+        height: null
+    }; //保存当前图像的宽度与高度（缩放后）
+    var midpoint = null; //保存当前图片的居中比例，拖动时清空，缩放时重新计算
+    // 居中比例：以canvas中轴线为基准将图片切成两部分，左侧部分占总宽度的比例，y方向同理。
+
+    var rangeInput = document.getElementsByClassName("rangeInput")[0]; //滑块对象
+    var uploadButton = document.getElementsByClassName("uploadButton")[0]; //图像上传按钮对象
+    var fileInput = uploadButton.getElementsByClassName("fileInput")[0]; //图像上传控件
+    var image = new Image(); //图像文件
+	
+	// 自定义进度条部分
+	var range = document.getElementById('range');
+	var bar = document.getElementById('bar');
+	var mask = document.getElementById('mask');
+	var ptxt = document.getElementsByTagName('p')[0];
+	var barleft = 0;
+	bar.onmousedown = function(event) {
+		var event = event || window.event;
+		var leftVal = event.clientX - this.offsetLeft;
+		var that = this;
+		// 拖动一定写到 down 里面才可以
+		document.onmousemove = function(event){
+			var event = event || window.event;
+			barleft = event.clientX - leftVal;
+			if(barleft < 0) {
+				barleft = 0;
+			} else if(barleft > range.offsetWidth - bar.offsetWidth) {
+				barleft = range.offsetWidth - bar.offsetWidth;
+			}
+			mask.style.width = barleft +'px' ;
+			that.style.left = barleft + "px";
+			
+			var precent = (barleft/(range.offsetWidth-bar.offsetWidth)).toFixed(2);
+			console.log(precent);
+			ptxt.innerHTML = "已经走了" + parseInt(precent * 100) + "%";
+			
+			//防止选择内容--当拖动鼠标过快时候，弹起鼠标，bar也会移动，修复bug
+			window.getSelection ? window.getSelection().removeAllRanges() : document.selection.empty();
+			
+			//缩放事件
+			rangeInput.value = 1 + Number(precent);
+			scaleImage();
+		}
+		document.onmouseup = function() {
+			document.onmousemove = null; //弹起鼠标不做任何操作
+		}
+	}
+	
+	document.getElementsByTagName('button')[0].onclick = function() {
+		var img = new Image();
+		img.src = canvas.toDataURL("image/png", 0.3);
+		img.onload = function(event) {
+			var canvas = document.createElement('canvas');
+			canvas.width = 160;
+			canvas.height = 160;
+			var context = canvas.getContext('2d');
+			context.drawImage(img,0,0,240,240,-40,-40,240,240);
+			var imgDom = new Image();
+			imgDom.src = canvas.toDataURL("image/png", 0.3);
+			imgDom.onload = function() {
+				document.body.appendChild(imgDom);
+			}
+		}
+	}
+	
+    //元素模拟图片上传按钮
+    uploadButton.onclick = function(event) {
+        return fileInput.click();
+    }
+
+    //图片上传处理代码
+    fileInput.addEventListener('change', function(event) {
+        var file = fileInput.files[0];
+		rangeInput.value = 0;
+        image.src = URL.createObjectURL(file);
+        image.onload = function(event) {
+            //缩放图片到刚好填满中框
+            if (image.width < image.height) {
+                minImgRect.width = canvas.width - border.width * 2;
+                minImgRect.height = parseInt(minImgRect.width / image.width * image.height);
+            } else {
+                minImgRect.height = canvas.height - border.width * 2;
+                minImgRect.width = parseInt(minImgRect.height / image.height * image.width);
+            }
+            //绘制初始图片
+            imgRect.width = minImgRect.width;
+            imgRect.height = minImgRect.height;
+            drawing(centerImg({
+                x: 0.5,
+                y: 0.5
+            }));
+        };
+    }, false);
+
+    //根据居中比例及图像大小，计算放置图片的坐标
+    //参数: {x: <0-1>, y: <0-1>}
+    //结果: {x: <coordinate_X>, y: <coordinate_Y>}
+    function centerImg(ratio) {
+        return { // 居中时应满足如下条件，借此计算出偏移量 x 和 y
+            x: canvas.width / 2 - imgRect.width * ratio.x, // 横坐标偏移(x) + 图像宽度*横向居中比例 应等于 canvas 宽度的一半（中点横坐标）
+            y: canvas.height / 2 - imgRect.height * ratio.y // 纵坐标偏移(y) + 图像高度*纵向居中比例 应等于 canvas 高度的一半（中点纵坐标）
+        };
+    }
+	
+    //绘制图片到canvas
+    function drawing(loc) {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        ctx.drawImage(image, loc.x, loc.y, imgRect.width, imgRect.height); //指定坐标输出图像
+        ctx.strokeStyle = border.color; // \
+        ctx.lineWidth = border.width; // | 绘制半透明边框 
+        ctx.strokeRect(border.width / 2, border.width / 2, canvas.width - border.width, canvas.height - border.width); // /
+        currLoc = {
+            x: loc.x,
+            y: loc.y
+        };
+    }
+
+    //缩放事件
+    rangeInput.oninput = scaleImage;
+	
+	//缩放相关代码
+	function scaleImage() {
+        //检查缩放前是否发生过拖动(midpoint是否被清除)，如果是则重新计算居中比例
+        if (midpoint == null) {
+            midpoint = {
+                x: (canvas.width * 0.5 - currLoc.x) / imgRect.width,
+                y: (canvas.height * 0.5 - currLoc.y) / imgRect.height
+            }
+        }
+        imgRect.width = minImgRect.width * parseFloat(rangeInput.value);
+        imgRect.height = minImgRect.height * parseFloat(rangeInput.value);
+        loc = centerImg(midpoint);
+        //检查计算出的位置是否存在脱离中框的情况
+        if (loc.x > 40) {
+            midpoint = null; //由于发生位移，需要情况居中比例，重新计算
+            loc.x = 40;
+        }
+        if (loc.x + imgRect.width < canvas.width - 40) {
+            midpoint = null;
+            loc.x = canvas.width - 40 - imgRect.width;
+        }
+        if (loc.y > 40) {
+            midpoint = null;
+            loc.y = 40;
+        }
+        if (loc.y + imgRect.height < canvas.height - 40) {
+            midpoint = null;
+            loc.y = canvas.height - 40 - imgRect.height;
+        }
+        drawing(loc);
+    }
+
+    //拖动相关代码
+    canvas.onmousedown = function(event) {
+        var lastMouseLoc = {
+            x: event.clientX,
+            y: event.clientY
+        };
+        document.onmousemove = function dragging(event) {
+            midpoint = null; //由于位置改变，居中比例需要清空，以便在缩放时重新计算。
+            var mouseMove = {
+                x: event.clientX - lastMouseLoc.x,
+                y: event.clientY - lastMouseLoc.y
+            };
+            lastMouseLoc = {
+                x: lastMouseLoc.x + mouseMove.x,
+                y: lastMouseLoc.y + mouseMove.y
+            };
+
+            if (currLoc.x + mouseMove.x > 40) { //禁止图像向左拖出中框
+                mouseMove.x = 40 - currLoc.x;
+            }
+            if (currLoc.x + mouseMove.x + imgRect.width < canvas.width - 40) { //禁止图像向右拖出中框
+                mouseMove.x = canvas.width - 40 - currLoc.x - imgRect.width;
+            }
+            if (currLoc.y + mouseMove.y > 40) { //禁止图像向下拖出中框
+                mouseMove.y = 40 - currLoc.y;
+            }
+            if (currLoc.y + mouseMove.y + imgRect.height < canvas.height - 40) { //禁止图像向上拖出中框
+                mouseMove.y = canvas.height - 40 - currLoc.y - imgRect.height;
+            }
+            drawing({
+                x: currLoc.x + mouseMove.x,
+                y: currLoc.y + mouseMove.y
+            });
+        }
+        document.onmouseup = function(event) {
+            document.onmousemove = null;
+        }
+    };
+	
+	//鼠标滚轮事件
+	canvas.onmousewheel = scrollFunc;
+	
+	//滚轮相关代码
+	function scrollFunc(e) {
+		e = e || window.event;
+		var val = Number(rangeInput.value);
+		if (e.wheelDelta) {  //判断浏览器IE，谷歌滑轮事件
+			if (e.wheelDelta > 0) { //当滑轮向上滚动时
+				val += 0.06;
+				// alert("滑轮向上滚动");
+			}
+			if (e.wheelDelta < 0) { //当滑轮向下滚动时
+				val -= 0.06;
+				//alert("滑轮向下滚动");
+			}
+		} else if (e.detail) {  //Firefox滑轮事件
+			if (e.detail > 0) { //当滑轮向上滚动时
+				val += 0.06;
+				//alert("滑轮向上滚动");
+			}
+			if (e.detail < 0) { //当滑轮向下滚动时
+				val -= 0.06;
+				//alert("滑轮向下滚动");
+			}
+		}
+		rangeInput.value = val;
+		
+		//自定义滚动条
+		var px = parseInt((range.offsetWidth - bar.offsetWidth)*(rangeInput.value - 1)) + 'px';
+		mask.style.width = px;
+		bar.style.left = px;
+		
+		// 触发缩放事件
+		scaleImage();
+	};
+	
+	//给页面绑定滑轮滚动事件
+	// if (document.addEventListener) {
+	// 	document.addEventListener('DOMMouseScroll', scrollFunc, false);
+	// }
+	//滚动滑轮触发scrollFunc方法
+	// window.onmousewheel = document.onmousewheel = scrollFunc;
+}();
+</script>
+</body>
+</html>
